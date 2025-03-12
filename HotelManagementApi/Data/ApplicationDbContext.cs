@@ -21,5 +21,6 @@ namespace HotelManagementApi.Data
                 .Property(r => r.Price)
                 .HasColumnType("decimal(18,2)"); // Precision 18, Scale 2 (e.g., 12345678901234.56)
         }
+        public DbSet<Booking> Bookings { get; set; }
     }
 }
