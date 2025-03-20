@@ -6,6 +6,7 @@ using System.Text;
 using HotelManagementApi.DTOs;
 using HotelManagementApi.Interfaces;
 using HotelManagementApi.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace HotelManagementApi.Services
 {
@@ -14,12 +15,18 @@ namespace HotelManagementApi.Services
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
         private readonly IConfiguration _configuration;
+        private readonly ITokenBlacklistService _blacklistService; // Inject blacklist service
 
-        public AuthService(UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager, IConfiguration configuration)
+        public AuthService(
+            UserManager<ApplicationUser> userManager,
+            RoleManager<IdentityRole> roleManager,
+            IConfiguration configuration,
+            ITokenBlacklistService blacklistService)
         {
             _userManager = userManager;
             _roleManager = roleManager;
             _configuration = configuration;
+            _blacklistService = blacklistService;
         }
 
         // Register a new user with a role
@@ -35,7 +42,6 @@ namespace HotelManagementApi.Services
 
             if (!result.Succeeded) return null;
 
-            // Ensure the role exists, then assign it
             if (!await _roleManager.RoleExistsAsync(registerDto.Role))
                 await _roleManager.CreateAsync(new IdentityRole(registerDto.Role));
 
@@ -52,6 +58,13 @@ namespace HotelManagementApi.Services
                 return await GenerateJwtToken(user);
             }
             return null;
+        }
+
+        // Logout by blacklisting the token
+        public async Task<bool> Logout(string token)
+        {
+            await _blacklistService.BlacklistToken(token);
+            return true;
         }
 
         // Helper method to generate JWT token
@@ -76,6 +89,47 @@ namespace HotelManagementApi.Services
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        public async Task<List<ApplicationUser>> GetAllUsers()
+        {
+            return await _userManager.Users.ToListAsync();
+        }
+
+        public async Task<ApplicationUser> GetUserById(string id)
+        {
+            return await _userManager.FindByIdAsync(id);
+        }
+
+        public async Task<bool> UpdateUser(string id, UpdateUserDto updateUserDto)
+        {
+            var user = await _userManager.FindByIdAsync(id);
+            if (user == null) return false;
+
+            user.FullName = updateUserDto.FullName ?? user.FullName;
+            user.Email = updateUserDto.Email ?? user.Email;
+            user.UserName = updateUserDto.Email ?? user.Email;
+
+            var result = await _userManager.UpdateAsync(user);
+            if (!result.Succeeded) return false;
+
+            if (!string.IsNullOrEmpty(updateUserDto.Role))
+            {
+                var currentRoles = await _userManager.GetRolesAsync(user);
+                await _userManager.RemoveFromRolesAsync(user, currentRoles);
+                await _userManager.AddToRoleAsync(user, updateUserDto.Role);
+            }
+
+            return true;
+        }
+
+        public async Task<bool> DeleteUser(string id)
+        {
+            var user = await _userManager.FindByIdAsync(id);
+            if (user == null) return false;
+
+            var result = await _userManager.DeleteAsync(user);
+            return result.Succeeded;
         }
     }
 }
